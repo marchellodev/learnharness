@@ -12,6 +12,7 @@ import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
 import { BrailleSpinner } from "@/components/braille-spinner";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
+import type { PickedFile } from "@/components/chat-attachments";
 import { SettingsDialogProvider, useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
 import { Hint } from "@/components/ui/hint";
 import { Button } from "@/components/ui/button";
@@ -80,6 +81,9 @@ declare global {
 			checkForUpdates?: () => Promise<void>;
 			installUpdate?: () => void;
 			onOpenSettings?: (cb: (section: string) => void) => () => void;
+			/** macOS: the paperclip's native menu — files, or an iPhone photo later via onCameraImage. */
+			attachmentMenu?: (x: number, y: number, maxBytes: number) => Promise<{ kind: "none" } | { kind: "files"; files: PickedFile[] }>;
+			onCameraImage?: (cb: (image: { mimeType: "image/jpeg"; data: string }) => void) => () => void;
 		};
 	}
 }

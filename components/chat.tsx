@@ -1759,7 +1759,7 @@ export function Chat({
 							onSend={onSend}
 							onStop={abortInFlightTurn}
 							canSend={canSend}
-							attachmentControl={<AttachmentPicker disabled={busy || !!pending || !!activeProblem || compacting || attachments.reading || sendingAttachments} onFiles={(files) => void attachments.add(files)} />}
+							attachmentControl={<AttachmentPicker disabled={busy || !!pending || !!activeProblem || compacting || attachments.reading || sendingAttachments} onFiles={(files) => void attachments.add(files)} onPicked={attachments.addPicked} />}
 							sendBlocked={sendingAttachments || attachments.reading || (busy && attachments.files.length > 0)}
 							onEscape={dictation.active ? dictation.cancel : undefined}
 							// The pause affordance (owner round 16): the placeholder

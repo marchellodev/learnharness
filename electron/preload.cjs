@@ -24,6 +24,11 @@
  *   snapshot for a late subscriber; checkForUpdates requests a manual
  *   check (including download/install-on-quit, even with automatic checks OFF).
  *
+ *   window.lh.attachmentMenu(x, y, maxBytes) / window.lh.onCameraImage(cb)
+ *   — macOS only: the paperclip's native menu (electron/continuity-camera.cjs).
+ *   Resolves {kind:"files", files} for picked files, or {kind:"none"};
+ *   iPhone photos arrive later through onCameraImage as base64 JPEG.
+ *
  *   window.lh.onOpenSettings(cb) — menu navigation, buffered until React
  *   subscribes after a window is reopened. Browser builds have no bridge.
  *
@@ -76,6 +81,14 @@ contextBridge.exposeInMainWorld("lh", {
 			return () => ipcRenderer.removeListener("lh:subscriptions:changed", listener);
 		},
 	},
+	...(process.platform === "darwin" ? {
+		attachmentMenu: (x, y, maxBytes) => ipcRenderer.invoke("lh:attachment-menu", { x, y, maxBytes }),
+		onCameraImage: (cb) => {
+			const listener = (_event, image) => cb(image);
+			ipcRenderer.on("lh:camera-image", listener);
+			return () => ipcRenderer.removeListener("lh:camera-image", listener);
+		},
+	} : {}),
 	expandWindow: () => ipcRenderer.send("lh:expand-window"),
 	onZoom: (cb) => {
 		const listener = (_event, factor) => cb(factor);

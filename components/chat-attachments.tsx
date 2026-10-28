@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FileTextIcon, PaperclipIcon, XIcon } from "lucide-react";
 import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES, MAX_TOTAL_ATTACHMENT_BYTES, type ChatAttachment } from "@/src/core";
 
@@ -32,12 +32,31 @@ function readAttachment(file: File): Promise<ChatAttachment> {
 	});
 }
 
+/** A file picked by the macOS attachment menu (electron/continuity-camera.cjs):
+ *  data is omitted when the file is over the size limit or of an unsupported type. */
+export interface PickedFile {
+	name: string;
+	type: string;
+	size: number;
+	data?: string;
+}
+
+function fileFromBase64(data: string, name: string, type: string): File {
+	return new File([Uint8Array.from(atob(data), (char) => char.charCodeAt(0))], name, { type });
+}
+
+function photoName(): string {
+	const now = new Date();
+	const pad = (n: number) => String(n).padStart(2, "0");
+	return `iPhone photo ${pad(now.getHours())}.${pad(now.getMinutes())}.${pad(now.getSeconds())}.jpg`;
+}
+
 export function useAttachmentDraft() {
 	const [files, setFiles] = useState<ChatAttachment[]>([]);
 	const [error, setError] = useState<string>();
 	const [reading, setReading] = useState(false);
 	const readingRef = useRef(false);
-	const add = async (selected: FileList | null) => {
+	const add = async (selected: FileList | readonly File[] | null) => {
 		if (!selected?.length || readingRef.current) return;
 		readingRef.current = true;
 		setReading(true);
@@ -54,15 +73,50 @@ export function useAttachmentDraft() {
 			setReading(false);
 		}
 	};
+	/* Validate the picked metadata first: oversized files arrive without data. */
+	const addPicked = (picked: readonly PickedFile[]) => {
+		try {
+			validateAttachmentFiles(picked, files);
+		} catch (err) {
+			setError((err as Error).message);
+			return;
+		}
+		void add(picked.map((file) => fileFromBase64(file.data ?? "", file.name, file.type)));
+	};
 	return {
-		files, error, reading, add,
+		files, error, reading, add, addPicked,
 		remove: (file: ChatAttachment) => setFiles((current) => current.filter((item) => item !== file)),
 		accepted: (sent: readonly ChatAttachment[]) => setFiles((current) => current.filter((file) => !sent.includes(file))),
 	};
 }
 
-export function AttachmentPicker({ disabled, onFiles }: { disabled: boolean; onFiles: (files: FileList | null) => void }) {
+/* Only the picker that opened the menu takes the photo: it arrives after
+ * the menu has closed, whenever the learner confirms on the phone. */
+let cameraTarget: ((file: File) => void) | null = null;
+
+export function AttachmentPicker({ disabled, onFiles, onPicked }: { disabled: boolean; onFiles: (files: FileList | readonly File[] | null) => void; onPicked?: (files: readonly PickedFile[]) => void }) {
 	const input = useRef<HTMLInputElement>(null);
+	const takePhoto = useRef<(file: File) => void>(() => {});
+	useEffect(() => {
+		takePhoto.current = (file) => onFiles([file]);
+	});
+	useEffect(() => window.lh?.onCameraImage?.(({ mimeType, data }) => {
+		if (cameraTarget === takePhoto.current) cameraTarget(fileFromBase64(data, photoName(), mimeType));
+	}), []);
+	useEffect(() => () => {
+		if (cameraTarget === takePhoto.current) cameraTarget = null;
+	}, []);
+	const menu = typeof window !== "undefined" ? window.lh?.attachmentMenu : undefined;
+	const open = async (button: HTMLButtonElement) => {
+		if (!menu) {
+			input.current?.click();
+			return;
+		}
+		const rect = button.getBoundingClientRect();
+		cameraTarget = takePhoto.current;
+		const picked = await menu(rect.left, rect.top - 4, MAX_ATTACHMENT_BYTES);
+		if (picked.kind === "files") onPicked?.(picked.files);
+	};
 	return (
 		<>
 			<input
@@ -72,8 +126,8 @@ export function AttachmentPicker({ disabled, onFiles }: { disabled: boolean; onF
 			/>
 			<button
 				type="button" aria-label="Attach PDFs or photos"
-				title="Attach PDFs or photos (up to 4 files, 5 MB each, 10 MB total)"
-				disabled={disabled} onClick={() => input.current?.click()}
+				title={menu ? "Attach PDFs or photos, or take a photo with your iPhone (up to 4 files, 5 MB each, 10 MB total)" : "Attach PDFs or photos (up to 4 files, 5 MB each, 10 MB total)"}
+				disabled={disabled} onClick={(event) => void open(event.currentTarget)}
 				className="flex size-10 shrink-0 items-center justify-center rounded-[10px] text-muted-foreground hover:bg-accent disabled:opacity-40"
 			>
 				<PaperclipIcon className="size-4" />
