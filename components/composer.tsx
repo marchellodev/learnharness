@@ -50,6 +50,8 @@ export function Composer({
 	placeholder = "Ask, answer, or steer the lesson…",
 	nextProblem = false,
 	onNext,
+	attachmentControl,
+	sendBlocked = false,
 }: {
 	busy: boolean;
 	value: string;
@@ -75,8 +77,12 @@ export function Composer({
 	/** The signal's dispatcher (send({type:"next"})) — the chip and the
 	 *  empty-Enter share it. */
 	onNext?: () => void;
+	attachmentControl?: React.ReactNode;
+	/** Attachment drafts wait for the running turn; they cannot be steers. */
+	sendBlocked?: boolean;
 }) {
 	const act = () => {
+		if (sendBlocked) return;
 		const action = enterAction({ busy, canSend, nextProblem });
 		if (action === "stop") onStop();
 		else if (action === "send") onSend();
@@ -91,6 +97,7 @@ export function Composer({
 				act();
 			}}
 		>
+			{attachmentControl}
 			<PathInput
 				ref={inputRef}
 				value={value}
@@ -138,6 +145,7 @@ export function Composer({
 						type="submit"
 						data-testid="next-problem-button"
 						aria-label="Next problem"
+						disabled={sendBlocked}
 						className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-green-600 px-4 font-ui text-xs font-medium uppercase tracking-wide text-white transition-colors hover:bg-green-500"
 					>
 						Next problem
@@ -145,17 +153,18 @@ export function Composer({
 					</button>
 				) : (
 					<button
-						type="submit"
-						aria-label={busy && !canSend ? "Stop" : "Send"}
-						disabled={!busy && !canSend}
+						type={busy && sendBlocked ? "button" : "submit"}
+						onClick={busy && sendBlocked ? onStop : undefined}
+						aria-label={busy && (!canSend || sendBlocked) ? "Stop" : "Send"}
+						disabled={(!busy && sendBlocked) || (!busy && !canSend)}
 						className={cn(
 							"flex size-10 shrink-0 items-center justify-center rounded-[10px] transition-colors",
-							busy && !canSend
+							busy && (!canSend || sendBlocked)
 								? "bg-secondary text-foreground hover:bg-accent"
 								: "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40",
 						)}
 					>
-						{busy && !canSend ? <SquareIcon className="size-4" /> : <CornerDownLeftIcon className="size-5" />}
+						{busy && (!canSend || sendBlocked) ? <SquareIcon className="size-4" /> : <CornerDownLeftIcon className="size-5" />}
 					</button>
 				)}
 		</form>
