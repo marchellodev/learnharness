@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { FileTextIcon, PaperclipIcon, XIcon } from "lucide-react";
+import { FileTextIcon, PaperclipIcon, RotateCwIcon, XIcon } from "lucide-react";
 import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES, MAX_TOTAL_ATTACHMENT_BYTES, type ChatAttachment } from "@/src/core";
 
 const acceptedTypes = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
@@ -51,6 +51,26 @@ function photoName(): string {
 	return `iPhone photo ${pad(now.getHours())}.${pad(now.getMinutes())}.${pad(now.getSeconds())}.jpg`;
 }
 
+/** The image turned a quarter clockwise, re-encoded in its own format. The
+ *  decode applies EXIF orientation, so the result is upright as shown. */
+export async function rotateAttachment(file: ChatAttachment): Promise<ChatAttachment> {
+	const image = new Image();
+	image.src = `data:${file.mimeType};base64,${file.data}`;
+	await image.decode();
+	const canvas = document.createElement("canvas");
+	canvas.width = image.naturalHeight;
+	canvas.height = image.naturalWidth;
+	const context = canvas.getContext("2d");
+	if (!context) throw new Error(`Could not rotate ${file.name}.`);
+	context.translate(canvas.width, 0);
+	context.rotate(Math.PI / 2);
+	context.drawImage(image, 0, 0);
+	const url = canvas.toDataURL(file.mimeType, 0.92);
+	const data = url.slice(url.indexOf(",") + 1);
+	if (data.length * 3 / 4 > MAX_ATTACHMENT_BYTES) throw new Error(`${file.name}: the rotated photo is over 5 MB.`);
+	return { ...file, data };
+}
+
 export function useAttachmentDraft() {
 	const [files, setFiles] = useState<ChatAttachment[]>([]);
 	const [error, setError] = useState<string>();
@@ -86,6 +106,15 @@ export function useAttachmentDraft() {
 	return {
 		files, error, reading, add, addPicked,
 		remove: (file: ChatAttachment) => setFiles((current) => current.filter((item) => item !== file)),
+		rotate: async (file: ChatAttachment) => {
+			setError(undefined);
+			try {
+				const rotated = await rotateAttachment(file);
+				setFiles((current) => current.map((item) => item === file ? rotated : item));
+			} catch (err) {
+				setError((err as Error).message);
+			}
+		},
 		accepted: (sent: readonly ChatAttachment[]) => setFiles((current) => current.filter((file) => !sent.includes(file))),
 	};
 }
@@ -150,7 +179,7 @@ export function AttachmentPreview({ file }: { file: ChatAttachment }) {
 	);
 }
 
-export function AttachmentTray({ files, error, reading, disabled, waiting = false, onRemove }: { files: readonly ChatAttachment[]; error?: string; reading: boolean; disabled: boolean; waiting?: boolean; onRemove: (file: ChatAttachment) => void }) {
+export function AttachmentTray({ files, error, reading, disabled, waiting = false, onRemove, onRotate }: { files: readonly ChatAttachment[]; error?: string; reading: boolean; disabled: boolean; waiting?: boolean; onRemove: (file: ChatAttachment) => void; onRotate?: (file: ChatAttachment) => void }) {
 	if (!files.length && !error && !reading) return null;
 	return (
 		<div className="px-3 pt-2" aria-live="polite">
@@ -159,6 +188,11 @@ export function AttachmentTray({ files, error, reading, disabled, waiting = fals
 					{files.map((file, index) => (
 						<li key={index} className="flex min-w-0 max-w-full items-center gap-1">
 							<AttachmentPreview file={file} />
+							{onRotate && file.mimeType.startsWith("image/") && (
+								<button type="button" aria-label={`Rotate ${file.name}`} title="Rotate 90° clockwise" disabled={disabled} onClick={() => onRotate(file)} className="flex size-8 shrink-0 items-center justify-center rounded hover:bg-accent disabled:opacity-40">
+									<RotateCwIcon className="size-4" />
+								</button>
+							)}
 							<button type="button" aria-label={`Remove ${file.name}`} disabled={disabled} onClick={() => onRemove(file)} className="flex size-8 shrink-0 items-center justify-center rounded hover:bg-accent disabled:opacity-40">
 								<XIcon className="size-4" />
 							</button>

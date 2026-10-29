@@ -24,6 +24,13 @@ describe("attachment drafts", () => {
 		assert.throws(() => validateAttachmentFiles([file()], [photo, photo, photo, photo]), /up to 4/);
 		assert.throws(() => validateAttachmentFiles([file({ size: 5 * 1024 * 1024 }), file({ size: 5 * 1024 * 1024 })], [photo]), /10 MB/);
 	});
+	it("offers rotation for photos only", () => {
+		const pdf: ChatAttachment = { name: "notes.pdf", mimeType: "application/pdf", data: "JVBERi0=" };
+		const html = renderToStaticMarkup(<AttachmentTray files={[photo, pdf]} reading={false} disabled={false} onRemove={() => {}} onRotate={() => {}} />);
+		assert.match(html, /aria-label="Rotate photo\.png"/);
+		assert.equal(html.includes("Rotate notes.pdf"), false);
+		assert.equal(renderToStaticMarkup(<AttachmentTray files={[photo]} reading={false} disabled={false} onRemove={() => {}} />).includes("Rotate"), false);
+	});
 	it("keeps an empty tray out of the existing composer layout", () => {
 		assert.equal(renderToStaticMarkup(<AttachmentTray files={[]} reading={false} disabled={false} onRemove={() => {}} />), "");
 	});

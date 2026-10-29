@@ -144,7 +144,7 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 				<div className="px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 					YOUR THINKING
 				</div>
-				<AttachmentTray files={attachments.files} error={attachments.error} reading={attachments.reading} disabled={sending || attachments.reading} onRemove={attachments.remove} />
+				<AttachmentTray files={attachments.files} error={attachments.error} reading={attachments.reading} disabled={sending || attachments.reading} onRemove={attachments.remove} onRotate={(file) => void attachments.rotate(file)} />
 				<PathInput
 					value={thinking}
 					onValueChange={(value) => {

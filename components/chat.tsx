@@ -1746,7 +1746,7 @@ export function Chat({
 					}
 					composer={
 						<div>
-						<AttachmentTray files={attachments.files} error={attachments.error} reading={attachments.reading} waiting={busy && attachments.files.length > 0} disabled={sendingAttachments || attachments.reading} onRemove={attachments.remove} />
+						<AttachmentTray files={attachments.files} error={attachments.error} reading={attachments.reading} waiting={busy && attachments.files.length > 0} disabled={sendingAttachments || attachments.reading} onRemove={attachments.remove} onRotate={(file) => void attachments.rotate(file)} />
 						<Composer
 							// Stop aborts ANY in-flight turn (stream-reattach wave): the
 							// square renders while a reattached/wake turn runs too — the
