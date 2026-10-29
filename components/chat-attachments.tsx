@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { FileTextIcon, PaperclipIcon, RotateCwIcon, XIcon } from "lucide-react";
 import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES, MAX_TOTAL_ATTACHMENT_BYTES, type ChatAttachment } from "@/src/core";
 
@@ -179,6 +180,40 @@ export function AttachmentPreview({ file }: { file: ChatAttachment }) {
 	);
 }
 
+/** A draft photo, big enough to check which way up it is; click to
+ *  see it full size. */
+function DraftPhoto({ file }: { file: ChatAttachment }) {
+	const [open, setOpen] = useState(false);
+	const uri = `data:${file.mimeType};base64,${file.data}`;
+	useEffect(() => {
+		if (!open) return;
+		// A surfaced layer claims Esc at the document (keyboard-shortcuts.tsx).
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== "Escape") return;
+			event.preventDefault();
+			event.stopPropagation();
+			setOpen(false);
+		};
+		document.addEventListener("keydown", onKeyDown);
+		return () => document.removeEventListener("keydown", onKeyDown);
+	}, [open]);
+	return (
+		<>
+			<button type="button" title={`${file.name} — click to enlarge`} aria-label={`Enlarge ${file.name}`} onClick={() => setOpen(true)} className="shrink-0 cursor-zoom-in overflow-hidden rounded-md border border-border">
+				{/* eslint-disable-next-line @next/next/no-img-element -- local data URL */}
+				<img src={uri} alt={file.name} className="block max-h-48 max-w-64 object-contain" />
+			</button>
+			{open && createPortal(
+				<div role="dialog" aria-label={file.name} onClick={() => setOpen(false)} className="fixed inset-0 z-[100] flex cursor-zoom-out items-center justify-center bg-black/80 p-6">
+					{/* eslint-disable-next-line @next/next/no-img-element -- local data URL */}
+					<img src={uri} alt={file.name} className="max-h-full max-w-full object-contain" />
+				</div>,
+				document.body,
+			)}
+		</>
+	);
+}
+
 export function AttachmentTray({ files, error, reading, disabled, waiting = false, onRemove, onRotate }: { files: readonly ChatAttachment[]; error?: string; reading: boolean; disabled: boolean; waiting?: boolean; onRemove: (file: ChatAttachment) => void; onRotate?: (file: ChatAttachment) => void }) {
 	if (!files.length && !error && !reading) return null;
 	return (
@@ -186,8 +221,9 @@ export function AttachmentTray({ files, error, reading, disabled, waiting = fals
 			{files.length > 0 && (
 				<ul aria-label="Attached files" className="flex flex-wrap gap-2">
 					{files.map((file, index) => (
-						<li key={index} className="flex min-w-0 max-w-full items-center gap-1">
-							<AttachmentPreview file={file} />
+						<li key={index} className={`flex min-w-0 max-w-full gap-1 ${file.mimeType.startsWith("image/") ? "items-start" : "items-center"}`}>
+							{file.mimeType.startsWith("image/") ? <DraftPhoto file={file} /> : <AttachmentPreview file={file} />}
+							<div className={file.mimeType.startsWith("image/") ? "flex flex-col gap-1" : "flex"}>
 							{onRotate && file.mimeType.startsWith("image/") && (
 								<button type="button" aria-label={`Rotate ${file.name}`} title="Rotate 90° clockwise" disabled={disabled} onClick={() => onRotate(file)} className="flex size-8 shrink-0 items-center justify-center rounded hover:bg-accent disabled:opacity-40">
 									<RotateCwIcon className="size-4" />
@@ -196,6 +232,7 @@ export function AttachmentTray({ files, error, reading, disabled, waiting = fals
 							<button type="button" aria-label={`Remove ${file.name}`} disabled={disabled} onClick={() => onRemove(file)} className="flex size-8 shrink-0 items-center justify-center rounded hover:bg-accent disabled:opacity-40">
 								<XIcon className="size-4" />
 							</button>
+							</div>
 						</li>
 					))}
 				</ul>

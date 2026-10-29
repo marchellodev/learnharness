@@ -41,11 +41,17 @@ describe("attachment drafts", () => {
 		assert.ok(document.querySelector('button[aria-label="Attach PDFs or photos"]'));
 		assert.match(html, /\.pdf/);
 	});
-	it("renders a named download, thumbnail and removal action", () => {
+	it("renders a large photo preview to enlarge, and a removal action", () => {
 		const { document } = parseHTML(renderToStaticMarkup(<AttachmentTray files={[photo]} reading={false} disabled={false} onRemove={() => {}} />));
-		assert.equal(document.querySelector("a")?.getAttribute("download"), "photo.png");
+		assert.ok(document.querySelector('button[aria-label="Enlarge photo.png"]'));
 		assert.equal(document.querySelector("img")?.getAttribute("alt"), "photo.png");
+		assert.match(document.querySelector("img")?.getAttribute("class") ?? "", /max-h-48/);
 		assert.ok(document.querySelector('button[aria-label="Remove photo.png"]'));
+	});
+	it("renders a named download for a PDF draft", () => {
+		const pdf: ChatAttachment = { name: "notes.pdf", mimeType: "application/pdf", data: "JVBERi0=" };
+		const { document } = parseHTML(renderToStaticMarkup(<AttachmentTray files={[pdf]} reading={false} disabled={false} onRemove={() => {}} />));
+		assert.equal(document.querySelector("a")?.getAttribute("download"), "notes.pdf");
 	});
 	it("escapes filenames instead of injecting markup", () => {
 		const html = renderToStaticMarkup(<AttachmentPreview file={{ ...photo, name: '<script>alert("x")</script>' }} />);
