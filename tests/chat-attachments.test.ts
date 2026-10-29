@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { ChatInputError, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS, MAX_TOTAL_ATTACHMENT_BYTES, parseChatInput } from "../src/core/input-events.ts";
-import { newAttachmentUserMessage, toLlmMessages } from "../src/core/native-messages.ts";
+import { ChatInputError, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS, MAX_TOTAL_ATTACHMENT_BYTES, inputAppends, parseChatInput } from "../src/core/input-events.ts";
+import { newAttachmentUserMessage, newThinkingMessage, toLlmMessages, type LhMessage } from "../src/core/native-messages.ts";
 import { projectView } from "../src/core/view.ts";
 import { sessionMarkdown } from "../src/core/session-markdown.ts";
 import { estimateMessageTokens } from "../src/core/compaction.ts";
@@ -149,5 +149,46 @@ describe("chat attachments", () => {
 		assert.match(markdown, /lesson\.pdf/);
 		assert.equal(markdown.includes("JVBERi0="), false);
 		assert.ok(estimateMessageTokens(message) >= 1000);
+	});
+});
+
+describe("practice thinking attachments", () => {
+	const problem = [
+		{ id: "a1", role: "assistant", content: [{ type: "toolCall", id: "p1", name: "problem", arguments: { statement: "Find P(F|flagged)." } }], stopReason: "toolUse", timestamp: 1 },
+		{ id: "r1", role: "toolResult", toolCallId: "p1", toolName: "problem", content: [{ type: "text", text: "posed" }], isError: false, timestamp: 2 },
+	] as unknown as LhMessage[];
+
+	it("accepts a photo of written work without text, and still refuses an empty submission", () => {
+		assert.deepEqual(parseChatInput({ type: "thinking", problemCallId: "p1", text: "", attachments: [{ ...image, extra: 1 }] }), {
+			type: "thinking", problemCallId: "p1", text: "", attachments: [image],
+		});
+		assert.throws(() => parseChatInput({ type: "thinking", problemCallId: "p1", text: " " }), ChatInputError);
+		assert.throws(() => parseChatInput({ type: "thinking", problemCallId: "p1", text: "x", attachments: [{ ...image, data: "a?==" }] }), ChatInputError);
+	});
+
+	it("stores the files on the thinking marker, with PDF text for the model", () => {
+		const pdf = { name: "work.pdf", mimeType: "application/pdf" as const, data: "JVBERi0=" };
+		const appends = inputAppends({ messages: problem, kind: "practice" }, { type: "thinking", problemCallId: "p1", text: "my working", attachments: [image, pdf] }, [image, { ...pdf, text: "[Page 1]\nsteps" }]);
+		const marker = appends.at(-1) as LhMessage & { attachments?: unknown[]; attachmentContext?: string };
+		assert.equal(marker.role, "custom");
+		assert.deepEqual(marker.attachments, [image, pdf]);
+		assert.equal(marker.attachmentContext, "Attached PDF: work.pdf\n[Page 1]\nsteps");
+	});
+
+	it("sends images to the model beside the thinking, and shows them on the card", () => {
+		const marker = { ...newThinkingMessage("p1", "see photo", [image], "Attached PDF: x.pdf\ntext") };
+		const content = (toLlmMessages([marker] as never)[0] as { content: Array<{ type: string; text?: string }> }).content;
+		assert.deepEqual(content.map((part) => part.type), ["text", "image", "text"]);
+		assert.match(content[0]!.text ?? "", /see photo/);
+		const part = projectView([marker])[0]!.parts[0] as { type: string; data: { text: string; attachments?: unknown[] } };
+		assert.equal(part.type, "data-practice-thinking");
+		assert.deepEqual(part.data.attachments, [image]);
+		assert.ok(estimateMessageTokens(marker) >= 1000, "the photo counts toward context sizing");
+	});
+
+	it("leaves plain thinking markers unchanged", () => {
+		const marker = newThinkingMessage("p1", "just text");
+		assert.equal("attachments" in marker, false);
+		assert.deepEqual((toLlmMessages([marker] as never)[0] as { content: unknown[] }).content.length, 1);
 	});
 });

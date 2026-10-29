@@ -4,10 +4,12 @@ import { useCallback, useRef, useState } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
+import { AttachmentPicker, AttachmentTray, useAttachmentDraft } from "@/components/chat-attachments";
 import { joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { PathInput } from "@/components/path-input";
 import { cn } from "@/lib/utils";
+import type { ChatAttachment } from "@/src/core";
 
 /**
  * The practice dock (practice sessions, owner design 2026-10-04): an
@@ -38,8 +40,9 @@ export interface PracticeDockProps {
 	/** Collapse state, owned by the DockOverlay. */
 	expanded: boolean;
 	onExpand: () => void;
-	/** text — POST {type:"thinking"} (one lane; the register is read from the text). */
-	onSubmit: (text: string) => void;
+	/** text + files — POST {type:"thinking"} (one lane; the register is read
+	 *  from the text). `accepted` fires once the server took the submission. */
+	onSubmit: (text: string, files: ChatAttachment[], accepted: () => void) => Promise<unknown> | void;
 	/** Escape in the thinking field stops dictation (threaded from the page). */
 	onEscape?: () => void;
 	/** Compaction is running for this chat (owner round 14): the thinking
@@ -55,6 +58,11 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 	// discipline): a submit resuming after `await finishDictation()` reads
 	// the tail, never a stale closure.
 	const thinkingRef = useRef("");
+	// Photos of written work (and PDFs): kept until the server accepts the
+	// submission, so a refusal (e.g. a text-only model) loses nothing.
+	const attachments = useAttachmentDraft();
+	const [sending, setSending] = useState(false);
+	const sendingRef = useRef(false);
 
 	useDictationTarget(
 		useCallback(
@@ -69,12 +77,26 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 	);
 
 	const submit = () => {
-		if (compactionRunning) return;
+		if (compactionRunning || attachments.reading || sendingRef.current) return;
 		const text = thinkingRef.current.trim();
-		if (text.length === 0) return;
+		const files = attachments.files;
+		if (text.length === 0 && files.length === 0) return;
 		thinkingRef.current = "";
 		setThinking("");
-		onSubmit(text);
+		if (files.length === 0) {
+			onSubmit(text, [], () => {});
+			return;
+		}
+		sendingRef.current = true;
+		setSending(true);
+		const done = () => {
+			sendingRef.current = false;
+			setSending(false);
+		};
+		void Promise.resolve(onSubmit(text, files, () => {
+			attachments.accepted(files);
+			done();
+		})).finally(done);
 	};
 
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): dictation
@@ -122,6 +144,7 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 				<div className="px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 					YOUR THINKING
 				</div>
+				<AttachmentTray files={attachments.files} error={attachments.error} reading={attachments.reading} disabled={sending || attachments.reading} onRemove={attachments.remove} />
 				<PathInput
 					value={thinking}
 					onValueChange={(value) => {
@@ -154,13 +177,14 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 				    one p-1 row. Corner radii concentric: shell 16 − m-1.5 (6) =
 				    field 10 − p-1 (4) = button 6. */}
 				<div className="flex items-center justify-between gap-2 p-1">
-					<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
+					<AttachmentPicker disabled={compactionRunning || sending || attachments.reading} onFiles={(files) => void attachments.add(files)} onPicked={attachments.addPicked} />
+					<span aria-hidden className="text-xs text-muted-foreground">
 						{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}
 					</span>
 					<Button
 						type="button"
 						data-testid="practice-send"
-						disabled={thinking.trim().length === 0 || compactionRunning}
+						disabled={(thinking.trim().length === 0 && attachments.files.length === 0) || compactionRunning || sending || attachments.reading}
 						onClick={() => submit()}
 						className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
 					>

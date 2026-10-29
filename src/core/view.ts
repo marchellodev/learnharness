@@ -441,7 +441,11 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
 			out.push({
 				id: marker.id,
 				role: "user",
-				parts: [{ type: "data-practice-thinking", id: `pt_${marker.id}`, data: marker.details }],
+				parts: [{
+					type: "data-practice-thinking",
+					id: `pt_${marker.id}`,
+					data: marker.attachments?.length ? { ...(marker.details as object), attachments: marker.attachments } : marker.details,
+				}],
 			});
 			return;
 		}

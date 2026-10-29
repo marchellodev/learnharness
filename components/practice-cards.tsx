@@ -2,7 +2,7 @@
 
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
-import type { ArtifactPartProps } from "@/src/core";
+import type { ArtifactPartProps, ChatAttachment } from "@/src/core";
 
 /**
  * The practice transcript cards (practice sessions, owner design
@@ -24,6 +24,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { ThinkingBlock } from "@/components/thinking-block";
+import { AttachmentPreview } from "@/components/chat-attachments";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
 
 /* TARGET NAMES (owner round 17, 2026-10-06): targets are normalized to
@@ -53,6 +54,8 @@ export interface PracticeThinkingData {
 	/** Legacy records (pre 2026-10-05) carry the old two-lane flag; ignored. */
 	commit?: boolean;
 	text: string;
+	/** Files sent with the submission (the view joins them in). */
+	attachments?: ChatAttachment[];
 }
 
 export function ProblemCard({ part }: ArtifactPartProps) {
@@ -294,5 +297,14 @@ export function ThinkingCard({ data }: { data: PracticeThinkingData }) {
 	// 50%-italic quote block on expand. Legacy records' commit flag is
 	// deliberately unread (one lane now). A TRANSCRIPT row (owner round,
 	// 2026-10-07): full-width band + rail, arriving expanded.
-	return <ThinkingBlock testId="thinking-card" label="YOUR THINKING" text={data.text} defaultOpen />;
+	const attachments = data.attachments ?? [];
+	if (!attachments.length) return <ThinkingBlock testId="thinking-card" label="YOUR THINKING" text={data.text} defaultOpen />;
+	return (
+		<div>
+			{data.text.trim() && <ThinkingBlock testId="thinking-card" label="YOUR THINKING" text={data.text} defaultOpen />}
+			<div data-testid="thinking-attachments" className="mt-2 flex flex-wrap justify-end gap-2">
+				{attachments.map((file, index) => <AttachmentPreview key={index} file={file} />)}
+			</div>
+		</div>
+	);
 }

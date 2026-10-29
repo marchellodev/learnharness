@@ -29,7 +29,7 @@
  */
 
 import type { QuestionAnswerData } from "./question-core.ts";
-import type { LhMessage } from "./native-messages.ts";
+import type { LhMessage, UserAttachmentRecord } from "./native-messages.ts";
 import {
 	activeProblemOf,
 	concludedByDismissalPair,
@@ -64,7 +64,7 @@ export type ChatInput =
 	 *  thinking on the ACTIVE problem — one lane (owner 2026-10-05):
 	 *  whether it claims an answer is read from the text. One
 	 *  problem may carry many submissions; each is its own turn. */
-	| { type: "thinking"; problemCallId: string; text: string }
+	| { type: "thinking"; problemCallId: string; text: string; attachments?: ChatAttachment[] }
 	/** The practice move-on signal (owner round 16): the learner's
 	 *  explicit go-ahead during the between-problems pause — the Next
 	 *  chip or Enter on an empty composer. Practice sessions only, and
@@ -188,10 +188,12 @@ export function parseChatInput(input: unknown): ChatInput {
 			if (typeof i.problemCallId !== "string" || i.problemCallId.length === 0) {
 				throw new ChatInputError("thinking input requires problemCallId");
 			}
-			if (typeof i.text !== "string" || i.text.trim().length === 0) {
-				throw new ChatInputError("thinking input requires non-empty text");
+			if (typeof i.text !== "string") throw new ChatInputError("thinking input requires text");
+			{
+				const attachments = parseAttachments(i.attachments);
+				if (!i.text.trim() && attachments.length === 0) throw new ChatInputError("thinking input requires non-empty text or attachments");
+				return { type: "thinking", problemCallId: i.problemCallId, text: i.text, ...(attachments.length ? { attachments } : {}) };
 			}
-			return { type: "thinking", problemCallId: i.problemCallId, text: i.text };
 		case "next":
 			return { type: "next" };
 		default:
@@ -201,11 +203,16 @@ export function parseChatInput(input: unknown): ChatInput {
 
 function parseTextInput(input: Record<string, unknown>): ChatInput {
 	if (typeof input.text !== "string") throw new ChatInputError("text input requires text");
-	const raw = input.attachments;
+	const attachments = parseAttachments(input.attachments);
+	if (!input.text.trim() && attachments.length === 0) throw new ChatInputError("text input requires text or attachments");
+	return { type: "text", text: input.text, ...(attachments.length ? { attachments } : {}) };
+}
+
+/** The attachments of a text or thinking input: count and size limits. */
+function parseAttachments(raw: unknown): ChatAttachment[] {
 	if (raw !== undefined && !Array.isArray(raw)) throw new ChatInputError("attachments must be an array");
 	if (Array.isArray(raw) && raw.length > MAX_ATTACHMENTS) throw new ChatInputError(`at most ${MAX_ATTACHMENTS} attachments are allowed`);
-	const attachments = (raw ?? []).map(parseAttachment);
-	if (!input.text.trim() && attachments.length === 0) throw new ChatInputError("text input requires text or attachments");
+	const attachments = ((raw ?? []) as unknown[]).map(parseAttachment);
 	let totalBytes = 0;
 	for (const attachment of attachments) {
 		const bytes = decodedBase64Length(attachment.data);
@@ -213,7 +220,23 @@ function parseTextInput(input: Record<string, unknown>): ChatInput {
 		totalBytes += bytes;
 	}
 	if (totalBytes > MAX_TOTAL_ATTACHMENT_BYTES) throw new ChatInputError(`attachments must total at most ${MAX_TOTAL_ATTACHMENT_BYTES} bytes`);
-	return { type: "text", text: input.text, ...(attachments.length ? { attachments } : {}) };
+	return attachments;
+}
+
+/** The stored attachments plus the model-facing PDF text, from the
+ *  server-prepared attachments (else the raw input's, client-side). */
+function attachmentFields(
+	attachments: readonly ChatAttachment[] | undefined,
+	prepared: ReadonlyArray<ChatAttachment & { text?: string }> | undefined,
+): { attachments: UserAttachmentRecord[]; attachmentContext: string } {
+	const source: ReadonlyArray<ChatAttachment & { text?: string }> = prepared?.length ? prepared : attachments ?? [];
+	return {
+		attachments: source.map(({ name, mimeType, data }) => ({ name, mimeType, data })),
+		attachmentContext: source
+			.filter((attachment) => attachment.text)
+			.map((attachment) => `Attached PDF: ${attachment.name}\n${attachment.text}`)
+			.join("\n\n"),
+	};
 }
 
 function decodedBase64Length(value: string): number {
@@ -251,16 +274,8 @@ export function inputAppends(
 ): LhMessage[] {
 	switch (input.type) {
 		case "text": {
-			let userMessage: LhMessage;
-			if (preparedAttachments?.length) {
-				const metadata = preparedAttachments.map(({ name, mimeType, data }) => ({ name, mimeType, data }));
-				const attachmentContext = preparedAttachments
-					.filter((attachment) => attachment.text)
-					.map((attachment) => `Attached PDF: ${attachment.name}\n${attachment.text}`)
-					.join("\n\n");
-				userMessage = newAttachmentUserMessage(input.text, metadata, attachmentContext);
-			} else if (input.attachments?.length) userMessage = newAttachmentUserMessage(input.text, input.attachments);
-			else userMessage = newUserMessage(input.text);
+			const { attachments, attachmentContext } = attachmentFields(input.attachments, preparedAttachments);
+			const userMessage = attachments.length ? newAttachmentUserMessage(input.text, attachments, attachmentContext) : newUserMessage(input.text);
 			return [...dismissalConclusion(record), userMessage];
 		}
 		case "answer": {
@@ -281,7 +296,8 @@ export function inputAppends(
 			if (!active || active.toolCallId !== input.problemCallId) {
 				throw new ChatInputError("thinking input targets no active problem");
 			}
-			return [...dismissalConclusion(record), newThinkingMessage(input.problemCallId, input.text)];
+			const { attachments, attachmentContext } = attachmentFields(input.attachments, preparedAttachments);
+			return [...dismissalConclusion(record), newThinkingMessage(input.problemCallId, input.text, attachments, attachmentContext)];
 		}
 		case "next": {
 			// Honest 400s, the thinking gate's discipline: the signal is a

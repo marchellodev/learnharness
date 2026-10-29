@@ -82,6 +82,10 @@ export interface LhMarkerMessage {
 	/** The UI payload — per-customType, never model-visible. */
 	details: unknown;
 	timestamp: number;
+	/** Files sent with a practice-thinking submission: images reach the
+	 *  model beside `content`, PDFs as their extracted text. */
+	attachments?: UserAttachmentRecord[];
+	attachmentContext?: string;
 }
 
 declare module "@earendil-works/pi-agent-core" {
@@ -336,7 +340,12 @@ export function newGraphContextMessage(picks: readonly GraphContextPick[], chain
  *  content label is the single "Your thinking"; `details` keeps the raw
  *  payload for the transcript card. One problem may carry many
  *  submissions. */
-export function newThinkingMessage(problemCallId: string, text: string): LhMarkerMessage {
+export function newThinkingMessage(
+	problemCallId: string,
+	text: string,
+	attachments: UserAttachmentRecord[] = [],
+	attachmentContext = "",
+): LhMarkerMessage {
 	return {
 		id: newMessageId(),
 		role: "custom",
@@ -345,6 +354,8 @@ export function newThinkingMessage(problemCallId: string, text: string): LhMarke
 		display: true,
 		details: { problemCallId, text },
 		timestamp: Date.now(),
+		...(attachments.length ? { attachments } : {}),
+		...(attachmentContext ? { attachmentContext } : {}),
 	};
 }
 
@@ -656,7 +667,13 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 			if (marker.customType === "compaction" && head !== null) continue;
 			out.push({
 				role: "user",
-				content: [{ type: "text", text: marker.content }],
+				content: [
+					{ type: "text", text: marker.content },
+					...(marker.attachments ?? [])
+						.filter((attachment) => attachment.mimeType.startsWith("image/"))
+						.map((attachment) => ({ type: "image" as const, data: attachment.data, mimeType: attachment.mimeType })),
+					...(marker.attachmentContext ? [{ type: "text" as const, text: marker.attachmentContext }] : []),
+				],
 			timestamp: marker.timestamp,
 			});
 			continue;

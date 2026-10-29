@@ -101,6 +101,12 @@ export function estimateMessageTokens(message: LhMessage | AgentMessage): number
 	} else {
 		chars += textCharsOfContent(content);
 		if (message.role === "user") chars += ((message as LhMessage & { attachmentContext?: string }).attachmentContext?.length ?? 0);
+		if (message.role === "custom") {
+			// Thinking submissions carry their files beside the content.
+			const marker = message as LhMarkerMessage;
+			chars += (marker.attachments ?? []).filter((attachment) => attachment.mimeType.startsWith("image/")).length * ESTIMATED_IMAGE_CHARS;
+			chars += marker.attachmentContext?.length ?? 0;
+		}
 		if (message.role === "system") {
 			const system = message as SystemMessage;
 			for (const section of Object.values(system.sections ?? {})) chars += section?.length ?? 0;
@@ -343,7 +349,8 @@ export function serializeForSummary(messages: readonly LhMessage[]): string {
 		} else if (role === "custom") {
 			const marker = m as LhMarkerMessage;
 			if (marker.customType === "plan-block") continue; // UI-only
-			lines.push(`[SYSTEM NOTE] ${marker.content}`);
+			const names = marker.attachments?.map((attachment) => `[ATTACHMENT: ${attachment.name}]`) ?? [];
+			lines.push(`[SYSTEM NOTE] ${[marker.content, ...names, marker.attachmentContext].filter(Boolean).join("\n")}`);
 		}
 	}
 	return lines.join("\n\n");

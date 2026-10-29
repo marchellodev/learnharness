@@ -226,7 +226,7 @@ export async function handleChatInput(
 	if (!record) {
 		return Response.json({ error: "Unknown chat" }, { status: 404 });
 	}
-	if (input.type === "text") {
+	if (input.type === "text" || input.type === "thinking") {
 		try { input = parseChatInput(input); }
 		catch (err) {
 			if (err instanceof ChatInputError) return Response.json({ error: err.message }, { status: 400 });
@@ -234,7 +234,7 @@ export async function handleChatInput(
 		}
 	}
 	let preparedAttachments: Awaited<ReturnType<typeof prepareChatAttachments>> = [];
-	if (input.type === "text" && input.attachments?.length) {
+	if ((input.type === "text" || input.type === "thinking") && input.attachments?.length) {
 		try { preparedAttachments = await prepareChatAttachments(input.attachments); }
 		catch (err) {
 			if (err instanceof ChatInputError) return Response.json({ error: err.message }, { status: 400 });
